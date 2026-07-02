@@ -1,0 +1,862 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Event Horizon — Schwarzschild Raytracer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,500;0,600;1,500&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --void:#050308;
+    --horizon:#000000;
+    --disk-core:#ff7a1f;
+    --disk-high:#ffd29b;
+    --starlight:#eae6f2;
+    --chrome:#8b7fa3;
+    --hairline:rgba(139,127,163,0.28);
+    --panel-bg:rgba(9,6,17,0.74);
+  }
+
+  *{box-sizing:border-box;}
+  html,body{
+    margin:0;
+    padding:0;
+    width:100%;
+    height:100%;
+    background:var(--void);
+    overflow:hidden;
+    font-family:'Inter',sans-serif;
+    color:var(--starlight);
+    -webkit-font-smoothing:antialiased;
+  }
+
+  #canvas-container{
+    position:fixed;
+    inset:0;
+    width:100vw;
+    height:100vh;
+  }
+  #canvas-container canvas{
+    display:block;
+    width:100% !important;
+    height:100% !important;
+  }
+
+  .mono{
+    font-family:'IBM Plex Mono',monospace;
+    letter-spacing:0.08em;
+  }
+
+  /* ---------- shared corner instrument brackets ---------- */
+  .bracket{
+    position:fixed;
+    width:22px;
+    height:22px;
+    border:1px solid var(--chrome);
+    opacity:0.45;
+    pointer-events:none;
+    z-index:5;
+    transition:opacity 0.8s ease;
+  }
+  .bracket.tl{ top:26px; left:26px; border-right:none; border-bottom:none; }
+  .bracket.tr{ top:26px; right:26px; border-left:none; border-bottom:none; }
+  .bracket.bl{ bottom:26px; left:26px; border-right:none; border-top:none; }
+  .bracket.br{ bottom:26px; right:26px; border-left:none; border-top:none; }
+
+  /* ---------- welcome screen ---------- */
+  #welcome-screen{
+    position:fixed;
+    inset:0;
+    z-index:10;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    text-align:center;
+    padding:24px;
+    will-change:opacity, filter, transform;
+    background:
+      radial-gradient(ellipse at 50% 42%, rgba(5,3,8,0.15) 0%, rgba(5,3,8,0.55) 45%, rgba(5,3,8,0.92) 78%),
+      linear-gradient(180deg, rgba(5,3,8,0.75) 0%, rgba(5,3,8,0.15) 22%, rgba(5,3,8,0.15) 70%, rgba(5,3,8,0.85) 100%);
+    transition:opacity 1.1s cubic-bezier(.4,0,.2,1), filter 1.1s cubic-bezier(.4,0,.2,1), transform 1.1s cubic-bezier(.4,0,.2,1);
+  }
+
+  #welcome-screen.fading{
+    opacity:0;
+    filter:blur(6px);
+    transform:scale(1.04);
+    pointer-events:none;
+  }
+
+  .eyebrow{
+    font-size:11px;
+    color:var(--chrome);
+    text-transform:uppercase;
+    margin-bottom:22px;
+    opacity:0.85;
+  }
+
+  .eyebrow::before{
+    content:'';
+    display:inline-block;
+    width:6px;
+    height:6px;
+    border-radius:50%;
+    background:var(--disk-core);
+    box-shadow:0 0 8px 2px var(--disk-core);
+    margin-right:10px;
+    vertical-align:middle;
+  }
+
+  h1{
+    font-family:'Fraunces',serif;
+    font-weight:500;
+    font-size:clamp(34px, 6.4vw, 74px);
+    line-height:1.06;
+    margin:0 0 20px 0;
+    max-width:15ch;
+  }
+  h1 em{
+    font-style:italic;
+    font-weight:500;
+    background:linear-gradient(100deg, var(--disk-high) 0%, var(--disk-core) 60%);
+    -webkit-background-clip:text;
+    background-clip:text;
+    color:transparent;
+  }
+
+  .subhead{
+    max-width:46ch;
+    font-size:15.5px;
+    line-height:1.65;
+    color:rgba(234,230,242,0.72);
+    margin:0 0 44px 0;
+  }
+
+  .enter-btn{
+    position:relative;
+    width:132px;
+    height:132px;
+    border-radius:50%;
+    border:1px solid var(--hairline);
+    background:radial-gradient(circle at 50% 50%, rgba(255,122,31,0.08), rgba(0,0,0,0) 70%);
+    color:var(--starlight);
+    cursor:pointer;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    flex-direction:column;
+    gap:6px;
+    transition:transform 0.4s cubic-bezier(.34,1.56,.64,1), border-color 0.4s ease, box-shadow 0.4s ease;
+  }
+  .enter-btn::before{
+    content:'';
+    position:absolute;
+    inset:-14px;
+    border-radius:50%;
+    border:1px solid rgba(255,122,31,0.35);
+    animation:spin 14s linear infinite;
+  }
+  .enter-btn::after{
+    content:'';
+    position:absolute;
+    inset:-14px;
+    border-radius:50%;
+    border-top:1px solid var(--disk-core);
+    border-right:1px solid transparent;
+    border-bottom:1px solid transparent;
+    border-left:1px solid transparent;
+    animation:spin 3.4s linear infinite;
+  }
+  @keyframes spin{ to{ transform:rotate(360deg); } }
+
+  .enter-btn:hover{
+    transform:scale(1.06);
+    border-color:rgba(255,122,31,0.5);
+    box-shadow:0 0 40px rgba(255,122,31,0.18);
+  }
+  .enter-btn:active{ transform:scale(0.98); }
+
+  .enter-btn .label{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:11px;
+    letter-spacing:0.12em;
+    text-transform:uppercase;
+  }
+  .enter-btn svg{ width:18px; height:18px; opacity:0.9; }
+
+  .readout{
+    position:fixed;
+    left:26px;
+    bottom:26px;
+    z-index:6;
+    font-size:10.5px;
+    color:var(--chrome);
+    line-height:1.9;
+    opacity:0.75;
+    pointer-events:none;
+    transition:opacity 0.8s ease;
+  }
+  .readout .row span:first-child{ color:rgba(234,230,242,0.55); margin-right:8px; }
+  .readout .row span:last-child{ color:var(--disk-high); }
+
+  .top-tag{
+    position:fixed;
+    top:26px;
+    left:50%;
+    transform:translateX(-50%);
+    z-index:6;
+    font-size:10px;
+    color:var(--chrome);
+    opacity:0.6;
+    text-transform:uppercase;
+  }
+
+  /* ---------- loading veil ---------- */
+  #loading-veil{
+    position:fixed;
+    inset:0;
+    z-index:50;
+    background:var(--void);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    transition:opacity 0.8s ease;
+  }
+  #loading-veil span{
+    font-size:11px;
+    color:var(--chrome);
+    text-transform:uppercase;
+    animation:pulse 1.6s ease-in-out infinite;
+  }
+  @keyframes pulse{ 0%,100%{opacity:0.35;} 50%{opacity:0.9;} }
+
+  /* ---------- simulation UI ---------- */
+  #sim-ui{
+    position:fixed;
+    inset:0;
+    z-index:8;
+    pointer-events:none;
+    opacity:0;
+    will-change:opacity;
+    transition:opacity 1s ease 0.3s;
+  }
+  #sim-ui.visible{ opacity:1; }
+
+  .exit-btn{
+    position:fixed;
+    top:26px;
+    left:26px;
+    z-index:9;
+    pointer-events:auto;
+    background:transparent;
+    border:1px solid var(--hairline);
+    color:var(--chrome);
+    font-family:'IBM Plex Mono',monospace;
+    font-size:10.5px;
+    letter-spacing:0.1em;
+    text-transform:uppercase;
+    padding:9px 14px;
+    border-radius:100px;
+    cursor:pointer;
+    display:flex;
+    align-items:center;
+    gap:8px;
+    transition:border-color 0.3s ease, color 0.3s ease, background 0.3s ease;
+  }
+  .exit-btn:hover{
+    color:var(--starlight);
+    border-color:rgba(255,122,31,0.4);
+    background:rgba(255,122,31,0.06);
+  }
+
+  .panel{
+    position:fixed;
+    top:26px;
+    right:26px;
+    width:236px;
+    pointer-events:auto;
+    background:var(--panel-bg);
+    border:1px solid var(--hairline);
+    border-radius:14px;
+    padding:18px 18px 8px 18px;
+    backdrop-filter:blur(8px);
+    -webkit-backdrop-filter:blur(8px);
+  }
+
+  .panel-title{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:10px;
+    text-transform:uppercase;
+    letter-spacing:0.14em;
+    color:var(--chrome);
+    margin-bottom:16px;
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+  }
+  .panel-title .dot{
+    width:5px; height:5px; border-radius:50%;
+    background:var(--disk-core);
+    box-shadow:0 0 6px 1px var(--disk-core);
+  }
+
+  .field{ margin-bottom:16px; }
+  .field-head{
+    display:flex;
+    justify-content:space-between;
+    font-family:'IBM Plex Mono',monospace;
+    font-size:10px;
+    color:rgba(234,230,242,0.65);
+    text-transform:uppercase;
+    letter-spacing:0.06em;
+    margin-bottom:8px;
+  }
+  .field-head .val{ color:var(--disk-high); }
+
+  input[type=range]{
+    -webkit-appearance:none;
+    appearance:none;
+    width:100%;
+    height:3px;
+    border-radius:3px;
+    background:linear-gradient(90deg, var(--disk-core) var(--fill,50%), rgba(139,127,163,0.22) var(--fill,50%));
+    outline:none;
+    cursor:pointer;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;
+    width:13px; height:13px;
+    border-radius:50%;
+    background:var(--starlight);
+    border:2px solid var(--disk-core);
+    cursor:pointer;
+    transition:transform 0.15s ease;
+  }
+  input[type=range]::-webkit-slider-thumb:hover{ transform:scale(1.18); }
+  input[type=range]::-moz-range-thumb{
+    width:11px; height:11px;
+    border-radius:50%;
+    background:var(--starlight);
+    border:2px solid var(--disk-core);
+    cursor:pointer;
+  }
+
+  .toggle-row{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    padding:10px 0 12px 0;
+    border-top:1px solid var(--hairline);
+    font-family:'IBM Plex Mono',monospace;
+    font-size:10px;
+    color:rgba(234,230,242,0.65);
+    text-transform:uppercase;
+    letter-spacing:0.06em;
+  }
+  .switch{
+    position:relative;
+    width:32px; height:18px;
+    border-radius:20px;
+    background:rgba(139,127,163,0.25);
+    cursor:pointer;
+    transition:background 0.25s ease;
+  }
+  .switch.on{ background:var(--disk-core); }
+  .switch::after{
+    content:'';
+    position:absolute;
+    top:2px; left:2px;
+    width:14px; height:14px;
+    border-radius:50%;
+    background:var(--starlight);
+    transition:transform 0.25s ease;
+  }
+  .switch.on::after{ transform:translateX(14px); }
+
+  .sim-readout{
+    position:fixed;
+    left:26px;
+    bottom:26px;
+    z-index:6;
+    font-size:10.5px;
+    color:var(--chrome);
+    line-height:1.9;
+    opacity:0.75;
+    pointer-events:none;
+  }
+  .sim-readout .row span:first-child{ color:rgba(234,230,242,0.55); margin-right:8px; }
+  .sim-readout .row span:last-child{ color:var(--disk-high); }
+
+  @media (max-width:640px){
+    .panel{ width:190px; right:14px; top:14px; padding:14px 14px 4px 14px; }
+    .exit-btn{ top:14px; left:14px; }
+    .bracket{ display:none; }
+    .enter-btn{ width:112px; height:112px; }
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    .enter-btn::before, .enter-btn::after{ animation:none; }
+  }
+</style>
+</head>
+<body>
+
+<div id="canvas-container"></div>
+
+<div id="loading-veil"><span class="mono">Calibrating instrument…</span></div>
+
+<div class="bracket tl"></div>
+<div class="bracket tr"></div>
+<div class="bracket bl"></div>
+<div class="bracket br"></div>
+
+<!-- ===== Welcome ===== -->
+<div id="welcome-screen">
+  <div class="top-tag mono">Live geodesic field · Schwarzschild metric</div>
+  <div class="eyebrow mono">Real-time relativistic raytracer</div>
+  <h1>Fall toward the<br><em>event horizon</em></h1>
+  <p class="subhead">Every pixel is a photon, stepped frame by frame through curved spacetime until it escapes, orbits, or crosses the horizon. Nothing here is faked — the bending you'll see is the same integration a real light ray would undergo near a Schwarzschild mass.</p>
+  <button class="enter-btn" id="enterBtn" aria-label="Enter orbit">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 4v13M6 12l6 6 6-6"/></svg>
+    <span class="label">Enter Orbit</span>
+  </button>
+  <div class="readout mono" id="welcomeReadout"></div>
+</div>
+
+<!-- ===== Simulation UI ===== -->
+<div id="sim-ui">
+  <button class="exit-btn" id="exitBtn">
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
+    Exit orbit
+  </button>
+
+  <div class="panel">
+    <div class="panel-title"><span>Instrument</span><span class="dot"></span></div>
+
+    <div class="field">
+      <div class="field-head"><span>Mass · Rs</span><span class="val" id="valRs">1.2</span></div>
+      <input type="range" id="sliderRs" min="0.2" max="2.5" step="0.05" value="1.2">
+    </div>
+
+    <div class="field">
+      <div class="field-head"><span>Disk inner</span><span class="val" id="valInner">2.8</span></div>
+      <input type="range" id="sliderInner" min="1.5" max="5.0" step="0.1" value="2.8">
+    </div>
+
+    <div class="field">
+      <div class="field-head"><span>Disk outer</span><span class="val" id="valOuter">9.5</span></div>
+      <input type="range" id="sliderOuter" min="6.0" max="15.0" step="0.25" value="9.5">
+    </div>
+
+    <div class="toggle-row">
+      <span>Auto orbit</span>
+      <div class="switch" id="autoRotateToggle"></div>
+    </div>
+
+    <div class="toggle-row" style="border-top:1px solid var(--hairline);">
+      <span>Adaptive quality</span>
+      <div class="switch" id="qualityToggle"></div>
+    </div>
+  </div>
+
+  <div class="sim-readout mono" id="simReadout"></div>
+</div>
+
+<script type="importmap">
+{ "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'https://unpkg.com/three@0.160.0/examples/jsm/controls/OrbitControls.js';
+
+/* ================= Shader ================= */
+const vertexShader = `
+  varying vec2 vUv;
+  void main(){ vUv = uv; gl_Position = vec4(position, 1.0); }
+`;
+
+const buildFragmentShader = (maxSteps) => `
+  uniform vec2 u_resolution;
+  uniform vec3 u_camPos;
+  uniform vec3 u_camDir;
+  uniform vec3 u_camUp;
+  uniform float u_Rs;
+  uniform float u_diskInner;
+  uniform float u_diskOuter;
+  uniform float u_time;
+  uniform float u_dt;
+
+  float getBackgroundStars(vec3 rayDir){
+    float n = sin(dot(floor(rayDir * 300.0), vec3(7.0, 57.0, 113.0))) * 43758.5453123;
+    return step(0.9992, fract(n));
+  }
+
+  void main(){
+    vec2 uv = (gl_FragCoord.xy - 0.5 * u_resolution.xy) / u_resolution.y;
+
+    vec3 rRight = normalize(cross(u_camDir, u_camUp));
+    vec3 rUp = cross(rRight, u_camDir);
+
+    vec3 p = u_camPos;
+    vec3 v = normalize(u_camDir + uv.x * rRight + uv.y * rUp);
+
+    float dt = u_dt;
+    vec3 diskColor = vec3(0.0);
+    float diskAlpha = 0.0;
+    bool hitHorizon = false;
+
+    for (int i = 0; i < ${maxSteps}; i++){
+      float r2 = dot(p, p);
+      float r = sqrt(r2);
+
+      if (r < u_Rs){ hitHorizon = true; break; }
+      if (r > 50.0) break;
+
+      vec3 h2 = cross(p, v);
+      vec3 gAcc = -1.5 * u_Rs * dot(h2, h2) * p / (r2 * r2 * r2);
+
+      v += gAcc * dt;
+      v = normalize(v);
+      vec3 next_p = p + v * dt;
+
+      if ((p.y > 0.0 && next_p.y < 0.0) || (p.y < 0.0 && next_p.y > 0.0)){
+        float tInterp = -p.y / (next_p.y - p.y);
+        vec3 intercept = p + tInterp * (next_p - p);
+        float dRadius = length(intercept.xz);
+
+        if (dRadius >= u_diskInner && dRadius <= u_diskOuter){
+          float intensity = smoothstep(u_diskOuter, u_diskInner, dRadius) * smoothstep(u_diskInner, u_diskInner + 0.8, dRadius);
+          float doppler = 1.0 + 0.7 * (intercept.x / dRadius);
+          vec3 gasColor = vec3(1.0, 0.4, 0.05) * intensity * doppler;
+          diskColor += (1.0 - diskAlpha) * gasColor;
+          diskAlpha += (1.0 - diskAlpha) * intensity * 0.8;
+        }
+      }
+      p = next_p;
+    }
+
+    vec3 finalColor = vec3(0.0);
+    if (hitHorizon){
+      finalColor = vec3(0.0);
+    } else {
+      vec3 stars = vec3(getBackgroundStars(v)) * 0.9;
+      stars += vec3(0.04, 0.02, 0.1) * (v.y * 0.5 + 0.5);
+      finalColor = mix(stars, diskColor, diskAlpha);
+    }
+
+    gl_FragColor = vec4(finalColor, 1.0);
+  }
+`;
+
+/* ================= Setup ================= */
+const container = document.getElementById('canvas-container');
+const scene = new THREE.Scene();
+const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+// antialias is off on purpose: MSAA multiplies the cost of the per-pixel
+// 200-step geodesic loop below, and is the single biggest perf drain here.
+const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
+renderer.setPixelRatio(1); // we drive the drawing-buffer size manually instead
+container.appendChild(renderer.domElement);
+
+/* Quality tiers, keyed to interaction state rather than a manual toggle:
+   - "low"  is used the instant the user starts dragging/orbiting — prioritizes responsiveness.
+   - "high" is used whenever nothing is being dragged (auto-rotating or simply idle) —
+     there's no input latency to protect, so it can afford real resolution and step count.
+   The CSS forces the canvas to always fill the screen (width/height:100%),
+   so a lower drawing-buffer size just means a softer, much faster image while dragging. */
+const QUALITY = {
+  low:  { dpr: 1,                                        scale: 0.5, dt: 0.20, maxSteps: 90  },
+  high: { dpr: Math.min(window.devicePixelRatio || 1, 2), scale: 1.0, dt: 0.08, maxSteps: 200 }
+};
+let currentQuality = QUALITY.high; // idle by default until the user grabs the view
+
+// Auto-adaptive scaling: nudges resolution up/down at runtime around the
+// current quality tier, based on measured frame time, so the experience
+// stays smooth on whatever GPU it happens to load on without user tuning.
+let autoScale = 1.0;
+const AUTO_SCALE_MIN = 0.55;
+const AUTO_SCALE_MAX = 1.15;
+
+function applyRenderSize(){
+  const w = Math.max(1, Math.round(window.innerWidth * currentQuality.dpr * currentQuality.scale * autoScale));
+  const h = Math.max(1, Math.round(window.innerHeight * currentQuality.dpr * currentQuality.scale * autoScale));
+  renderer.setSize(w, h, false);
+  shaderUniforms.u_resolution.value.set(w, h);
+  shaderUniforms.u_dt.value = currentQuality.dt;
+}
+
+const proxyCamera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+const controls = new OrbitControls(proxyCamera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.05;
+controls.minDistance = 5;
+controls.maxDistance = 35;
+controls.enabled = true;
+controls.autoRotate = true;
+controls.autoRotateSpeed = 0.35;
+
+/* Welcome orbit radius vs simulation orbit radius */
+const WELCOME_RADIUS = 21;
+const SIM_RADIUS = 12;
+let sph = new THREE.Spherical(WELCOME_RADIUS, Math.PI / 2 - 0.28, 0.9);
+proxyCamera.position.setFromSpherical(sph);
+proxyCamera.lookAt(0, 0, 0);
+controls.update();
+
+const physicsParams = { Rs: 1.2, diskInner: 2.8, diskOuter: 9.5 };
+
+const shaderUniforms = {
+  u_resolution: { value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
+  u_camPos: { value: new THREE.Vector3() },
+  u_camDir: { value: new THREE.Vector3() },
+  u_camUp: { value: new THREE.Vector3() },
+  u_Rs: { value: physicsParams.Rs },
+  u_diskInner: { value: physicsParams.diskInner },
+  u_diskOuter: { value: physicsParams.diskOuter },
+  u_time: { value: 0.0 },
+  u_dt: { value: currentQuality.dt }
+};
+applyRenderSize();
+
+const geometry = new THREE.PlaneGeometry(2, 2);
+const materialLow = new THREE.ShaderMaterial({
+  vertexShader, fragmentShader: buildFragmentShader(QUALITY.low.maxSteps), uniforms: shaderUniforms,
+  depthWrite: false, depthTest: false
+});
+const materialHigh = new THREE.ShaderMaterial({
+  vertexShader, fragmentShader: buildFragmentShader(QUALITY.high.maxSteps), uniforms: shaderUniforms,
+  depthWrite: false, depthTest: false
+});
+const quadMesh = new THREE.Mesh(geometry, materialHigh);
+scene.add(quadMesh);
+
+// Warm up both compiled programs now, while the loading veil is still
+// covering the screen, so the very first drag doesn't cause a compile hitch.
+renderer.render(scene, camera);
+quadMesh.material = materialLow;
+renderer.render(scene, camera);
+quadMesh.material = materialHigh;
+
+function setQualityTier(tier){
+  const q = QUALITY[tier];
+  if (currentQuality === q) return;
+  currentQuality = q;
+  quadMesh.material = tier === 'high' ? materialHigh : materialLow;
+  applyRenderSize();
+}
+
+window.addEventListener('resize', () => {
+  applyRenderSize();
+  proxyCamera.aspect = window.innerWidth / window.innerHeight;
+  proxyCamera.updateProjectionMatrix();
+});
+
+/* ================= Readouts ================= */
+function paintReadouts(){
+  const modeLabel = currentQuality === QUALITY.high ? 'Idle · high' : 'Dragging · low';
+  const html = `
+    <div class="row"><span>Rs</span><span>${physicsParams.Rs.toFixed(2)}</span></div>
+    <div class="row"><span>Disk</span><span>${physicsParams.diskInner.toFixed(1)}–${physicsParams.diskOuter.toFixed(1)}</span></div>
+    <div class="row"><span>Steps</span><span>${currentQuality.maxSteps}</span></div>
+    <div class="row"><span>Render</span><span>${modeLabel}</span></div>
+  `;
+  document.getElementById('welcomeReadout').innerHTML = html;
+  document.getElementById('simReadout').innerHTML = html;
+}
+paintReadouts();
+
+/* ================= Panel bindings ================= */
+function bindSlider(id, valId, key, decimals){
+  const el = document.getElementById(id);
+  const valEl = document.getElementById(valId);
+  const setFill = () => {
+    const pct = ((el.value - el.min) / (el.max - el.min)) * 100;
+    el.style.setProperty('--fill', pct + '%');
+  };
+  setFill();
+  el.addEventListener('input', () => {
+    const v = parseFloat(el.value);
+    physicsParams[key] = v;
+    shaderUniforms['u_' + key].value = v;
+    valEl.textContent = v.toFixed(decimals);
+    setFill();
+    paintReadouts();
+  });
+}
+bindSlider('sliderRs', 'valRs', 'Rs', 2);
+bindSlider('sliderInner', 'valInner', 'diskInner', 1);
+bindSlider('sliderOuter', 'valOuter', 'diskOuter', 2);
+
+const autoToggle = document.getElementById('autoRotateToggle');
+function setAutoRotate(on){
+  controls.autoRotate = on;
+  autoToggle.classList.toggle('on', on);
+}
+autoToggle.addEventListener('click', () => setAutoRotate(!controls.autoRotate));
+
+const qualityToggle = document.getElementById('qualityToggle');
+let adaptiveEnabled = true;
+let isInteracting = false;
+let idleTimer = null;
+const IDLE_DELAY_MS = 260; // small buffer so quick clicks don't flicker quality
+
+qualityToggle.classList.add('on'); // adaptive is on by default
+
+controls.addEventListener('start', () => {
+  isInteracting = true;
+  clearTimeout(idleTimer);
+  if (adaptiveEnabled){ autoScale = 1.0; setQualityTier('low'); paintReadouts(); }
+});
+controls.addEventListener('end', () => {
+  isInteracting = false;
+  clearTimeout(idleTimer);
+  if (!adaptiveEnabled) return;
+  idleTimer = setTimeout(() => {
+    autoScale = 1.0;
+    setQualityTier('high');
+    paintReadouts();
+  }, IDLE_DELAY_MS);
+});
+
+qualityToggle.addEventListener('click', () => {
+  adaptiveEnabled = !adaptiveEnabled;
+  qualityToggle.classList.toggle('on', adaptiveEnabled);
+  clearTimeout(idleTimer);
+  autoScale = 1.0;
+  if (!adaptiveEnabled){
+    // Locked mode: stay on the responsive tier at all times.
+    setQualityTier('low');
+  } else {
+    setQualityTier(isInteracting ? 'low' : 'high');
+  }
+  paintReadouts();
+});
+
+/* ================= State machine: welcome / transition / sim ================= */
+const welcomeScreen = document.getElementById('welcome-screen');
+const simUI = document.getElementById('sim-ui');
+const enterBtn = document.getElementById('enterBtn');
+const exitBtn = document.getElementById('exitBtn');
+
+let mode = 'welcome'; // 'welcome' | 'toSim' | 'sim' | 'toWelcome'
+let tweenStart = 0;
+const TWEEN_MS = 2200;
+
+function easeInOutCubic(t){ return t < 0.5 ? 4*t*t*t : 1 - Math.pow(-2*t+2,3)/2; }
+
+function enterSimulation(){
+  if (mode !== 'welcome') return;
+  mode = 'toSim';
+  tweenStart = performance.now();
+  welcomeScreen.classList.add('fading');
+  controls.enabled = false;
+  setTimeout(() => {
+    simUI.classList.add('visible');
+  }, TWEEN_MS * 0.55);
+}
+
+function exitSimulation(){
+  if (mode !== 'sim') return;
+  mode = 'toWelcome';
+  tweenStart = performance.now();
+  simUI.classList.remove('visible');
+  controls.enabled = false;
+  setTimeout(() => {
+    welcomeScreen.classList.remove('fading');
+  }, 300);
+}
+
+enterBtn.addEventListener('click', enterSimulation);
+exitBtn.addEventListener('click', exitSimulation);
+
+/* ================= Loading veil ================= */
+window.addEventListener('load', () => {
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    const veil = document.getElementById('loading-veil');
+    veil.style.opacity = '0';
+    setTimeout(() => veil.remove(), 850);
+  }));
+});
+
+/* ================= Render loop ================= */
+const clock = new THREE.Clock();
+const camDirVector = new THREE.Vector3();
+
+// Rolling frame-time average used to nudge autoScale toward a smooth target.
+let lastFrameTime = performance.now();
+let avgFrameMs = 16.7;
+let framesSinceAdjust = 0;
+const TARGET_MS = 20;      // ~50fps floor before we scale down
+const COMFORT_MS = 14;     // headroom before we scale back up
+const ADJUST_EVERY = 40;   // frames between adjustments (avoids flapping)
+
+function animate(){
+  requestAnimationFrame(animate);
+
+  // Skip GPU work entirely while the tab is in the background.
+  if (document.hidden) { lastFrameTime = performance.now(); return; }
+
+  const now = performance.now();
+  const frameMs = now - lastFrameTime;
+  lastFrameTime = now;
+  avgFrameMs = avgFrameMs * 0.9 + frameMs * 0.1;
+
+  framesSinceAdjust++;
+  if (framesSinceAdjust >= ADJUST_EVERY && (mode === 'welcome' || mode === 'sim')){
+    framesSinceAdjust = 0;
+    if (avgFrameMs > TARGET_MS && autoScale > AUTO_SCALE_MIN){
+      autoScale = Math.max(AUTO_SCALE_MIN, autoScale - 0.08);
+      applyRenderSize();
+    } else if (avgFrameMs < COMFORT_MS && autoScale < AUTO_SCALE_MAX){
+      autoScale = Math.min(AUTO_SCALE_MAX, autoScale + 0.04);
+      applyRenderSize();
+    }
+  }
+
+  if (mode === 'welcome' || mode === 'sim'){
+    controls.update();
+  } else if (mode === 'toSim' || mode === 'toWelcome'){
+    let t = Math.min(1, (now - tweenStart) / TWEEN_MS);
+    const e = easeInOutCubic(t);
+    const fromR = mode === 'toSim' ? WELCOME_RADIUS : SIM_RADIUS;
+    const toR = mode === 'toSim' ? SIM_RADIUS : WELCOME_RADIUS;
+    const r = fromR + (toR - fromR) * e;
+    const theta = sph.theta + (mode === 'toSim' ? e * 0.6 : -e * 0.6);
+    const phi = sph.phi;
+    proxyCamera.position.setFromSphericalCoords(r, phi, theta);
+    proxyCamera.lookAt(0, 0, 0);
+
+    if (t >= 1){
+      sph.radius = toR;
+      sph.theta = theta;
+      controls.target.set(0,0,0);
+      controls.object.position.copy(proxyCamera.position);
+      controls.update();
+      controls.enabled = true;
+      if (mode === 'toSim'){
+        mode = 'sim';
+        setAutoRotate(false);
+      } else {
+        mode = 'welcome';
+        setAutoRotate(true);
+      }
+    }
+  }
+
+  proxyCamera.getWorldDirection(camDirVector);
+  shaderUniforms.u_time.value = clock.getElapsedTime();
+  shaderUniforms.u_camPos.value.copy(proxyCamera.position);
+  shaderUniforms.u_camDir.value.copy(camDirVector);
+  shaderUniforms.u_camUp.value.copy(proxyCamera.up);
+
+  renderer.render(scene, camera);
+}
+
+animate();
+</script>
+</body>
+</html>
